@@ -1,0 +1,196 @@
+<script src=lib2.js></script>
+
+<body bgcolor=black text=white link=white alink=white vlink=white>
+<center>
+<canvas id='canvas1' width=400 height=400></canvas>
+</center>
+</body>
+
+
+<!!-------- VERTEX SHADER: YOU PROBABLY DON'T WANT TO CHANGE THIS RIGHT NOW -------->
+
+<script id='my_vertex_shader' type='x-shader/x-vertex'>
+   attribute vec3 aPos;
+   varying   vec3 vPos;
+   void main() {
+      gl_Position = vec4(aPos, 1.);
+      vPos = aPos;
+   }
+</script>
+
+
+<!!-------- FRAGMENT SHADER: THIS IS WHERE YOU WILL DO YOUR WORK -------->
+
+<script id='my_fragment_shader' type='x-shader/x-fragment'>
+
+ uniform float uTime;   // TIME, IN SECONDS
+
+ varying vec3 vPos;     // -1 < vPos.x < +1
+                        // -1 < vPos.y < +1
+                        //      vPos.z == 0
+
+ // FOCAL LENGTH OF CAMERA ROUGHLY MIMICS A STANDARD 50mm LENS
+
+ float f = 3.0;
+
+ // FUNCTION TO INTERSECT A SPHERE WITH A RAY
+
+ float raySphere(vec4 S, vec3 V, vec3 W) {
+    V -= S.xyz;
+    float vw = dot(V, W);
+    float d = vw * vw - dot(V, V) + S.w * S.w;
+    return d < 0. ? -1. : -vw - sqrt(d);
+ }
+
+ void main() {
+
+ // AN ORBITING SPHERE
+
+ ///vec4 S = vec4(.5 * cos(2. * uTime), 0., .5 * sin(2. * uTime), 0.5);
+
+ // A STATIONARY SPHERE AT THE ORIGIN
+
+    vec4 S = vec4(0., 0., 0., 0.8);
+
+ // THE LIGHT SOURCE DIRECTION
+
+    vec3  L = normalize(vec3(1.,1.,1.));
+
+ // START WITH A DARK BLUE SKY
+
+    vec3 color = vec3(0., 0., 0.05);
+
+ // TRACE A RAY AT THIS PIXEL DIRECTION
+
+    vec3 V = vec3(0., 0., f);
+    vec3 W = normalize(vec3(vPos.x, vPos.y, -f));
+    float t = raySphere(S, V, W);
+
+ // IF THE RAY HITS THE SPHERE
+
+    if (t > 0.) {
+
+    // COMPUTE SURFACE POSITION AND NORMAL DIRECTION
+   
+       vec3 P = V + t * W;
+       vec3 N = normalize(P - S.xyz);
+
+    // DO DIFFUSE SHADING
+
+       float d = .1 + .9 * max(0.0, dot(N, L));
+       color = vec3(d, d, 1.2 * d);
+
+    // ANIMATED ROTATION OF THE SPHERE TEXTURE.
+    // SPECIFICALLY, WE ARE ROTATING N.x AND N.z OVER TIME:
+
+       float theta = 0.2 * uTime;
+       float x =  N.x * cos(theta) + N.z * sin(theta);
+       float z = -N.x * sin(theta) + N.z * cos(theta);
+
+    // FRACTAL NOISE-BASED TEXTURE TO DELINEATE LAND AND SEA
+
+       float s = .5;
+       s += .40 * noise( 2. * vec3(x,N.y,z));
+       s += .20 * noise( 4. * vec3(x,N.y,z));
+       s += .10 * noise( 8. * vec3(x,N.y,z));
+       s += .05 * noise(16. * vec3(x,N.y,z));
+       s = step(s, 0.4);
+
+    // NOISE-BASED TEXTURE FOR THE LAND AREAS OF THE PLANET
+
+       float m = .5 + .5 * noise(30. * vec3(x,N.y,z));
+       color *= mix(vec3(.1,.9,.9), vec3(.9,.6,.3) * m, s);
+    }
+
+ // NOISE-BASED ANIMATED LAYERED FOG
+
+    vec3 wind = vec3(-0.4 * uTime, 0., 0.);
+    float fog = .7 + .6 * noise(1.5 * vPos + wind);
+    float layer = 0.5 - 0.5 * vPos.y;
+    fog *= 2. * layer * layer;
+    color = mix(color, vec3(.1,.095,.09), fog);
+
+ // SET THE FINAL COLOR FOR THE PIXEL
+
+    gl_FragColor = vec4(sqrt(color), 1.0);
+ }</script>
+
+
+<!!-------- CREATE A PROPERLY DESCRIPTIVE TITLE BELOW -------->
+
+<script id='my_title' type='text/html'>
+RAY TRACING TO A SPHERE
+</script>
+
+
+<!!-------- HERE IS WHERE YOU CAN PROVIDE A LONGER TEXT DESCRIPTION -------->
+
+<script id='my_instructions' type='text/html'><font color=#b0b0b0>
+We render a sphere via ray tracing,
+and apply simple diffuse shading.
+<p>
+We also apply coherent noise-based
+procedural texture, make the sphere
+spin on its axis, and create cool
+animated atmospheric effects.
+</script>
+
+
+<!!-------- YOU PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW FOR NOW -------->
+   
+<script>
+
+// CREATE THE HTML DOCUMENT
+
+let vs = my_vertex_shader.innerHTML,
+    fs = my_fragment_shader.innerHTML;
+    fs = fs.substring(1, fs.length);
+
+document.body.innerHTML = [''
+   ,'<center><font size=6 color=#b0b0b0>' + my_title.innerHTML + '</center>'
+   ,'<TABLE cellspacing=0 cellpadding=0><TR>'
+   ,'<td width=50></td><td><font color=red size=5><div id=errorMessage>&nbsp;</div></font></td>'
+   ,'</TR><TR>'
+   ,'<table cellspacing=10>'
+   ,'<tr>'
+   ,'<td valign=top><font size=2 color=red><div id=errorMarker>&nbsp;</div></font></td>'
+   ,'<td valign=top>'
+   ,'<textArea id=textArea spellcheck=false '
+   ,'style="font:16px courier;outline-width:0;border-style:none;resize:none;overflow:scroll;"'
+   ,'></textArea>'
+   ,'</td><td valign=top>' + document.body.innerHTML + '</td>'
+   ,'<td valign=top><font size=5>' + my_instructions.innerHTML + '</td>'
+   ,'</tr></table>'
+   ,'</TR></TABLE>'
+   ].join('');
+
+// SET UP THE EDITABLE TEXT AREA ON THE LEFT SIDE.
+
+let text = fs.split('\n'), cols = 0;
+for (let i = 0 ; i < text.length ; i++)
+   cols = Math.max(cols, text[i].length);
+
+textArea.rows = text.length;
+textArea.cols = cols;
+textArea.value = fs;
+textArea.style.backgroundColor = '#202020';
+textArea.style.color = 'white';
+
+// REPARSE THE SHADER PROGRAM AFTER EVERY KEYSTROKE.
+
+textArea.onkeyup = function() { canvas1.setShaders(vs, this.value); }
+
+// SET THE CURRENT TIME IN SECONDS BEFORE RENDERING EACH FRAME.
+
+let startTime = Date.now();
+
+function animate(gl) {
+   let time = (Date.now() - startTime) / 1000;
+   setUniform('1f', 'uTime', time);
+}
+
+// START EVERYTHING.
+
+gl_start(canvas1, vs, fs);
+</script>
+
