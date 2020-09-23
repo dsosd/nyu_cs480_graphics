@@ -3,6 +3,7 @@
 <body bgcolor=black text=white link=white alink=white vlink=white>
 <center>
 <canvas id='canvas1' width=400 height=400></canvas>
+<p id="simulation_time_text"></p>
 </center>
 </body>
 
@@ -22,117 +23,134 @@
 <!!-------- FRAGMENT SHADER: THIS IS WHERE YOU WILL DO YOUR WORK -------->
 
 <script id='my_fragment_shader' type='x-shader/x-fragment'>
+	uniform float u_time; //time in seconds
+	uniform float u_mtime; //time in milliseconds
 
- uniform float uTime;   // TIME, IN SECONDS
+	varying vec3 vPos; //pos coord we receive. ctrl-f `vec3 pos` for more info
 
- varying vec3 vPos;     // -1 < vPos.x < +1
-                        // -1 < vPos.y < +1
-                        //      vPos.z == 0
+	uniform float u_sim_time;
+	uniform vec3 u_eye_offset;
+	uniform vec4 u_earth_sphere;
+	uniform vec4 u_moon_sphere;
+	uniform vec3 u_sun_pos;
 
- // FOCAL LENGTH OF CAMERA ROUGHLY MIMICS A STANDARD 50mm LENS
+	//intersecting ray is V + t * W, where t is ret val
+	float ray_sphere(vec4 sphere, vec3 V, vec3 W){
+		V -= sphere.xyz;
+		float v_dot_w = dot(V, W);
+		//radius is sphere.w
+		float discrim = v_dot_w * v_dot_w - dot(V, V) + sphere.w * sphere.w;
+		//MAGIC return -1 as a failure value
+		return discrim < 0.0 ? -1.0 : -v_dot_w - sqrt(discrim);
+	}
 
- float f = 3.0;
+	vec3 rgb_color(int r, int g, int b){
+		return vec3(
+			float(r) / 255.0,
+			float(g) / 255.0,
+			float(b) / 255.0
+		);
+	}
 
- // FUNCTION TO INTERSECT A SPHERE WITH A RAY
+	void main(){
+		vec3 pos = vPos; //bounds: x, y in (-1, 1) and z = 0
 
- float raySphere(vec4 S, vec3 V, vec3 W) {
-    V -= S.xyz;
-    float vw = dot(V, W);
-    float d = vw * vw - dot(V, V) + S.w * S.w;
-    return d < 0. ? -1. : -vw - sqrt(d);
- }
+		vec3 ret = rgb_color(0, 127, 0);
 
- void main() {
+		float focal_len = 3.0;
+		vec3 eye = vec3(0.0, 0.0, focal_len);
+		vec3 pixel_ray = normalize(vec3(pos.x, pos.y, -focal_len));
 
- // AN ORBITING SPHERE
+		vec4 earth = u_earth_sphere - vec4(u_eye_offset, 0.0);
+		vec4 moon = u_moon_sphere - vec4(u_eye_offset, 0.0);
 
- ///vec4 S = vec4(.5 * cos(2. * uTime), 0., .5 * sin(2. * uTime), 0.5);
+		float earth_t = ray_sphere(earth, eye, pixel_ray);
+		float moon_t = ray_sphere(moon, eye, pixel_ray);
 
- // A STATIONARY SPHERE AT THE ORIGIN
+		//show earth
+		if (earth_t > 0.0 && (moon_t < 0.0 || earth_t < moon_t)){
+			vec3 intersect_pt = eye + earth_t * pixel_ray;
+			vec3 normal = normalize(intersect_pt - earth.xyz);
 
-    vec4 S = vec4(0., 0., 0., 0.8);
+			vec3 land_color = rgb_color(106, 72, 67);
+			vec3 sea_color = rgb_color(76, 181, 228);
 
- // THE LIGHT SOURCE DIRECTION
+			float day = u_sim_time * 2.0 * radians(180.0);
+			//TODO should really be rotating on a 23.5 deg tilt, but is not
+			vec3 rotation = vec3(
+				normal.x * cos(day) + normal.z * sin(day),
+				normal.y,
+				normal.z * cos(day) - normal.x * sin(day)
+			);
 
-    vec3  L = normalize(vec3(1.,1.,1.));
+			float land_prob = 0.4;
+			land_prob += 0.4 * noise(2.0 * rotation + vec3(0.8, 120.8, 3.1));
+			land_prob += 0.2 * noise(4.0 * rotation + vec3(0.8, 120.8, 3.1));
+			vec3 target_color = mix(sea_color, land_color, step(0.5, land_prob));
 
- // START WITH A DARK BLUE SKY
+			float ambient_factor = 0.05;
+			vec3 base_color = rgb_color(0, 0, 0);
+			float light_strength = max(0.0, dot(normal, normalize(u_sun_pos))) > 0.05 ? 1.0 : 0.0;
 
-    vec3 color = vec3(0., 0., 0.05);
+			ret = mix(
+				base_color,
+				target_color,
+				ambient_factor + (1.0 - ambient_factor) * light_strength
+			);
+		}
+		//show moon
+		else if (moon_t > 0.0 && (earth_t < 0.0 || moon_t < earth_t)){
+			vec3 intersect_pt = eye + moon_t * pixel_ray;
+			vec3 normal = normalize(intersect_pt - moon.xyz);
 
- // TRACE A RAY AT THIS PIXEL DIRECTION
+			vec3 crater_color = rgb_color(56, 56, 56);
+			vec3 surface_color = rgb_color(165, 165, 165);
 
-    vec3 V = vec3(0., 0., f);
-    vec3 W = normalize(vec3(vPos.x, vPos.y, -f));
-    float t = raySphere(S, V, W);
+			//simulate tidal locking
+			float month = -1.0 * u_sim_time / 365.0 * 12.0 * 2.0 * radians(180.0);
+			vec3 rotation = vec3(
+				normal.x * cos(month) + normal.z * sin(month),
+				normal.y,
+				normal.z * cos(month) - normal.x * sin(month)
+			);
 
- // IF THE RAY HITS THE SPHERE
+			float crater_prob = 0.2;
+			crater_prob += 0.35 * noise(2.0 * rotation + vec3(4.6, 5.9, 1.86));
+			vec3 target_color = mix(surface_color, crater_color, step(0.5, crater_prob));
 
-    if (t > 0.) {
+			float ambient_factor = 0.05;
+			vec3 base_color = rgb_color(0, 0, 0);
+			float light_strength = max(0.0, dot(normal, normalize(u_sun_pos))) > 0.05 ? 1.0 : 0.0;
 
-    // COMPUTE SURFACE POSITION AND NORMAL DIRECTION
-   
-       vec3 P = V + t * W;
-       vec3 N = normalize(P - S.xyz);
+			ret = mix(
+				base_color,
+				target_color,
+				ambient_factor + (1.0 - ambient_factor) * light_strength
+			);
+		}
+		//show sPacE
+		else{
+			ret = rgb_color(0, 0, 0);
+		}
 
-    // DO DIFFUSE SHADING
+		vec3 light = normalize(u_sun_pos);
 
-       float d = .1 + .9 * max(0.0, dot(N, L));
-       color = vec3(d, d, 1.2 * d);
-
-    // ANIMATED ROTATION OF THE SPHERE TEXTURE.
-    // SPECIFICALLY, WE ARE ROTATING N.x AND N.z OVER TIME:
-
-       float theta = 0.2 * uTime;
-       float x =  N.x * cos(theta) + N.z * sin(theta);
-       float z = -N.x * sin(theta) + N.z * cos(theta);
-
-    // FRACTAL NOISE-BASED TEXTURE TO DELINEATE LAND AND SEA
-
-       float s = .5;
-       s += .40 * noise( 2. * vec3(x,N.y,z));
-       s += .20 * noise( 4. * vec3(x,N.y,z));
-       s += .10 * noise( 8. * vec3(x,N.y,z));
-       s += .05 * noise(16. * vec3(x,N.y,z));
-       s = step(s, 0.4);
-
-    // NOISE-BASED TEXTURE FOR THE LAND AREAS OF THE PLANET
-
-       float m = .5 + .5 * noise(30. * vec3(x,N.y,z));
-       color *= mix(vec3(.1,.9,.9), vec3(.9,.6,.3) * m, s);
-    }
-
- // NOISE-BASED ANIMATED LAYERED FOG
-
-    vec3 wind = vec3(-0.4 * uTime, 0., 0.);
-    float fog = .7 + .6 * noise(1.5 * vPos + wind);
-    float layer = 0.5 - 0.5 * vPos.y;
-    fog *= 2. * layer * layer;
-    color = mix(color, vec3(.1,.095,.09), fog);
-
- // SET THE FINAL COLOR FOR THE PIXEL
-
-    gl_FragColor = vec4(sqrt(color), 1.0);
- }</script>
+		gl_FragColor = vec4(sqrt(ret), 1.0);
+	}
+</script>
 
 
 <!!-------- CREATE A PROPERLY DESCRIPTIVE TITLE BELOW -------->
 
 <script id='my_title' type='text/html'>
-RAY TRACING TO A SPHERE
+Internationally Representative Fragment shader
 </script>
 
 
 <!!-------- HERE IS WHERE YOU CAN PROVIDE A LONGER TEXT DESCRIPTION -------->
 
-<script id='my_instructions' type='text/html'><font color=#b0b0b0>
-We render a sphere via ray tracing,
-and apply simple diffuse shading.
-<p>
-We also apply coherent noise-based
-procedural texture, make the sphere
-spin on its axis, and create cool
-animated atmospheric effects.
+<script id='my_instructions' type='text/html'>
+This is a not-to-scale representation of the Earth-Sun and Earth-Moon system. Shadows don't work properly :(
 </script>
 
 
@@ -184,9 +202,48 @@ textArea.onkeyup = function() { canvas1.setShaders(vs, this.value); }
 
 let startTime = Date.now();
 
-function animate(gl) {
-   let time = (Date.now() - startTime) / 1000;
-   setUniform('1f', 'uTime', time);
+function animate(gl){
+	let mtime = Date.now() - startTime;
+	let time = mtime / 1000;
+	setUniform('1f', 'u_mtime', mtime);
+	setUniform('1f', 'u_time', time);
+
+	//MAGIC start off 39 days from start of year
+	//MAGIC exponentially ramp up speed from 1/5 days per second until we reach 14 days per second
+	//TODO add dampening function so capping is less abrupt
+	let sim_time = 39 + time / 5.0 * Math.min(Math.pow(1.15, time), 5.0 * 14);
+	let year = sim_time / 365;
+	let month = year * 12;
+
+	let eye_offset = [0.0, 0.0, 10.0];
+
+	let earth_pos = [0.0, 0.0, 0.0];
+
+	let earth_moon_orbit_radius = 3.2;
+	let moon_pos = [
+		earth_moon_orbit_radius * Math.sin(month * 2 * Math.PI),
+		0.0,
+		earth_moon_orbit_radius * Math.cos(month * 2 * Math.PI)
+	];
+
+	//the Sun actually orbits the Earth fyi
+	let earth_sun_orbit_radius = 30.0;
+	let sun_pos = [
+		earth_sun_orbit_radius * Math.sin(year * 2 * Math.PI),
+		0.0,
+		earth_sun_orbit_radius * Math.cos(year * 2 * Math.PI)
+	];
+
+	let earth_radius = 1.0;
+	let moon_radius = earth_radius / 4;
+
+	setUniform("1f", "u_sim_time", sim_time);
+	setUniform("3fv", "u_eye_offset", eye_offset);
+	setUniform("4fv", "u_earth_sphere", [earth_pos[0], earth_pos[1], earth_pos[2], earth_radius]);
+	setUniform("4fv", "u_moon_sphere", [moon_pos[0], moon_pos[1], moon_pos[2], moon_radius]);
+	setUniform("3fv", "u_sun_pos", sun_pos);
+
+	document.getElementById("simulation_time_text").innerHTML = "Year " + Math.floor(2020 + year) + " day " + (Math.floor(sim_time) % 365).toString().padStart(3, "0");
 }
 
 // START EVERYTHING.
