@@ -1,3 +1,4 @@
+
 <script src=lib3.js></script>
 
 <body bgcolor=black text=white link=white alink=white vlink=white>
@@ -22,213 +23,153 @@
 <!!-------- FRAGMENT SHADER: THIS IS WHERE YOU WILL DO YOUR WORK -------->
 
 <script id='my_fragment_shader' type='x-shader/x-fragment'>
-
- uniform float uTime;   // TIME, IN SECONDS
-
- const int nl = 2;
- const int ns = 2;
-
- uniform vec3 uLDir[nl]; // LIGHT DIRECTION
- uniform vec3 uLCol[nl]; // LIGHT COLOR
-
- uniform vec4 uSph[ns]; // THE SPHERE
-
- varying vec3 vPos;     // -1 < vPos.x < +1
-                        // -1 < vPos.y < +1
-                        //      vPos.z == 0
-
- // FOCAL LENGTH OF CAMERA ROUGHLY MIMICS A STANDARD 50mm LENS
-
- float f = 3.0;
-
- // FUNCTION TO INTERSECT A SPHERE WITH A RAY
-
- float raySphere(vec4 S, vec3 V, vec3 W) {
-    V -= S.xyz;
-    float vw = dot(V, W);
-    float d = vw * vw - dot(V, V) + S.w * S.w;
-    return d < 0. ? -1. : -vw - sqrt(d);
- }
-
- void main() {
-
- // AN ORBITING SPHERE
-
- ///vec4 S = vec4(.5 * cos(2. * uTime), 0., .5 * sin(2. * uTime), 0.5);
-
- // A STATIONARY SPHERE AT THE ORIGIN
-
- ///vec4 S = vec4(0., 0., 0., 0.8);
-
- // THE LIGHT SOURCE DIRECTION
-
-    vec3  L = uLDir[0];
-
- // START WITH A DARK BLUE SKY
-
-    vec3 color = vec3(0., 0., 0.05);
-
- // TRACE A RAY AT THIS PIXEL DIRECTION
-
-    vec3 V = vec3(0., 0., f);
-    vec3 W = normalize(vec3(vPos.x, vPos.y, -f));
-
-    // FIRST DETERMINE WHICH SPHERE WE HIT, IF ANY.
-
-    float t0 = 10000.; // HUGE HONKING START VALUE OF t
-    vec3 P, N;
-    int ii = -1;
-
-    for (int i = 0 ; i < ns ; i++) {
-       vec4 S = uSph[i];
-       float t = raySphere(S, V, W);
-
-       // IF THE RAY HITS THE SPHERE
-
-       if (t > 0. && t < t0) {
-          t0 = t;
-	  ii = i;
-
-          // COMPUTE SURFACE POSITION AND NORMAL DIRECTION
-   
-          P = V + t * W;
-          N = normalize(P - S.xyz);
-       }
-    }
-
-    // IF THE RAY HAS HIT AT LEAST ONE SPHERE
-
-    if (ii >= 0) {
-
-       // SET PHONG MATERIAL PROPERTIES
-
-       vec3 ambient = vec3(.1,.1,.1);
-       vec3 diffuse = vec3(.8,.8,.8);
-
-////// HERE YOU SHOULD ADD: vec4 specular = ...
-
-       // START WITH AMBIENT COLOR OF THE OBJECT
-
-       color = ambient;
-
-       for (int i = 0 ; i < nl ; i++) {
-
-	  // SEE IF THE SURFACE POINT IS IN SHADOW FROM THIS LIGHT
-
-          vec3 Vs = P + 0.001 * uLDir[i];  // RAY FROM OUTSIDE SURFACE
-          vec3 Ws = uLDir[i];              // TOWARD LIGHT SOURCE.
-
-	  // BY SHOOTING A SHADOW RAY FOR THIS LIGHT TO EVERY SPHERE.
-
-          float t = -1.;
-          for (int j = 0 ; j < ns ; j++)
-             t = max(t, raySphere(uSph[j], Vs, Ws));
-
-	  // IF THE SURFACE POINT IS NOT IN SHADOW FROM THIS LIGHT
-
-	  if (t < 0.) {
-
-             // ADD DIFFUSE COMPONENT
-
-             color += diffuse * max(0., dot(N, uLDir[i])) * uLCol[i];
-
-             // ADD SPECULAR COMPONENT
-
-/*********************************************************************
-
-  For homework, you need to implement the specular component.
-
-  You will need four numbers:
-
-     3 numbers for the color of the specular highlight: red,green,blue
-     1 number for the power of the highlight (higher is shinier): p
-
-  You can store those four values in a vec4:
-
-     vec4 specular = vec4(red,green,blue,p);
-
-  For each light source not in shadow, you need to do the following:
-
-     (1) Compute reflection vector R = 2 * dot(N,LDir) * N - LDir
-
-     (2) Compute dot product d = dot(R,eyeDir).
-         You can use -W for eyeDir, since it points back to the eye.
-
-     (3) If d is positive, then add in the specular highlight:
-
-           color += LCol * specular * pow(d, p)
-
-*********************************************************************/
-
-          }
-       }
-    }
-
-// THEN DO SHADING ON THE SPHERE WE HIT, IF ANY.
-
-    if (ii == 0) {
-
-    // ANIMATED ROTATION OF THE SPHERE TEXTURE
-
-       float theta = 0.2 * uTime;
-       float x =  N.x * cos(theta) + N.z * sin(theta);
-       float z = -N.x * sin(theta) + N.z * cos(theta);
-
-    // FRACTAL NOISE-BASED TEXTURE TO DELINEATE LAND AND SEA
-
-       float s = .5;
-       s += .40 * noise( 2. * vec3(x,N.y,z));
-       s += .20 * noise( 4. * vec3(x,N.y,z));
-       s += .10 * noise( 8. * vec3(x,N.y,z));
-       s += .05 * noise(16. * vec3(x,N.y,z));
-       s = step(s, 0.4);
-
-    // NOISE-BASED TEXTURE FOR THE LAND AREAS OF THE PLANET
-
-       float m = .5 + .5 * noise(30. * vec3(x,N.y,z));
-       color *= mix(vec3(.1,.9,.9), vec3(.9,.6,.3) * m, s);
-    }
-
-    if (ii == 1) {
-       color *= .8 + .5 * noise(5. * N);
-    }
-
- // NOISE-BASED ANIMATED LAYERED FOG
-
-    vec3 wind = vec3(-0.4 * uTime, 0., 0.);
-    float fog = .7 + .6 * noise(1.5 * vPos + wind);
-    float layer = 0.5 - 0.5 * vPos.y;
-    fog *= 2. * layer * layer;
-    color = mix(color, vec3(.1,.095,.09), fog);
-
- // SET THE FINAL COLOR FOR THE PIXEL
-
-    gl_FragColor = vec4(sqrt(color), 1.0);
- }</script>
+	uniform float u_time; //time in seconds
+	uniform float u_mtime; //time in milliseconds
+
+	varying vec3 vPos; //pos coord we receive. ctrl-f `vec3 pos` for more info
+
+	const int num_lights = 4;
+	const int num_spheres = 4;
+
+	uniform float u_sim_time;
+	uniform vec3 u_eye_offset;
+
+	uniform vec3 u_light_pos[num_lights];
+	uniform vec3 u_light_dir[num_lights];
+	uniform vec3 u_light_color[num_lights];
+	uniform float u_light_theta[num_lights];
+	uniform vec4 u_sphere_info[num_spheres];
+	uniform vec3 u_sphere_color[num_spheres];
+
+	//intersecting ray is V + t * W, where t is ret val
+	float ray_sphere(vec4 sphere, vec3 V, vec3 W){
+		V -= sphere.xyz;
+		float v_dot_w = dot(V, W);
+		//radius is sphere.w
+		float discrim = v_dot_w * v_dot_w - dot(V, V) + sphere.w * sphere.w;
+		//MAGIC return -1 as a failure value
+		return discrim < 0.0 ? -1.0 : -v_dot_w - sqrt(discrim);
+	}
+
+	//returns id of the closest sphere hit by the ray tracing, -1 if no hits
+	int min_t_sphere(vec3 V, vec3 W){
+		int ret = -1;
+		//MAGIC random sufficient large value approx. infinity
+		float min_t = 100100100.0;
+
+		for (int i = 0; i < num_spheres; ++i){
+			float temp = ray_sphere(u_sphere_info[i], V, W);
+
+			if (temp > 0.0 && temp < min_t){
+				min_t = temp;
+				ret = i;
+			}
+		}
+
+		return ret;
+	}
+
+	//returns id of the farthest sphere hit by the ray tracing, -1 if no hits
+	int max_t_sphere(vec3 V, vec3 W){
+		int ret = -1;
+		//MAGIC random sufficient small value approx. -infinity
+		float max_t = -100100100.0;
+
+		for (int i = 0; i < num_spheres; ++i){
+			float temp = ray_sphere(u_sphere_info[i], V, W);
+
+			if (temp > 0.0 && temp > max_t){
+				max_t = temp;
+				ret = i;
+			}
+		}
+
+		return ret;
+	}
+
+	vec3 rgb_color(int r, int g, int b){
+		return vec3(
+			float(r) / 255.0,
+			float(g) / 255.0,
+			float(b) / 255.0
+		);
+	}
+
+	void main(){
+		vec3 pos = vPos; //bounds: x, y in (-1, 1) and z = 0
+
+		vec3 ret = rgb_color(0, 0, 0);
+
+		float focal_len = 3.0;
+		vec3 eye = vec3(0.0, 0.0, focal_len);
+		vec3 pixel_ray = normalize(vec3(pos.x, pos.y, -focal_len));
+
+		int sphere_hit = min_t_sphere(eye, pixel_ray);
+		//MAGIC null value from min_t_sphere(...)
+		if (sphere_hit != -1){
+			//workaround for non-constant indexing
+			for (int i = 0; i < num_spheres; ++i){
+				if (i != sphere_hit){
+					continue;
+				}
+
+				vec4 sphere = u_sphere_info[i];
+				vec3 intersect_pt = eye + ray_sphere(sphere, eye, pixel_ray) * pixel_ray;
+				vec3 normal = normalize(intersect_pt - sphere.xyz);
+
+				vec3 color = u_sphere_color[i];
+
+				//Phong lighting model
+				vec3 ambient_factor = vec3(0.12, 0.12, 0.12);
+				vec3 diffuse_factor = vec3(0.55, 0.55, 0.55);
+				vec3 spectral_factor = vec3(0.15, 0.15, 0.15);
+				float spectral_power = 15.0;
+
+				ret = ambient_factor * color;
+
+				for (int i = 0; i < num_lights; ++i){
+					vec3 pt_to_light = normalize(u_light_pos[i] - intersect_pt);
+
+					//point is within light cone
+					if (dot(u_light_dir[i], -pt_to_light) > cos(u_light_theta[i])){
+						//MAGIC null value to indicate not in shadow
+						if (max_t_sphere(intersect_pt, pt_to_light) == -1){
+							//diffuse
+							ret += diffuse_factor * u_light_color[i] * max(0.0, dot(normal, pt_to_light));
+
+							//spectral
+							vec3 reflection = 2.0 * dot(normal, pt_to_light) * normal - pt_to_light;
+							float spectral_dot = dot(reflection, -pixel_ray);
+
+							if (spectral_dot > 0.0){
+								ret += spectral_factor * u_light_color[i] * pow(spectral_dot, spectral_power);
+							}
+						}
+					}
+				}
+			}
+		}
+		//show black screen if we hit nothing
+		else{
+			ret = rgb_color(0, 0, 0);
+		}
+
+		gl_FragColor = vec4(sqrt(ret), 1.0);
+	}
+</script>
 
 
 <!!-------- CREATE A PROPERLY DESCRIPTIVE TITLE BELOW -------->
 
 <script id='my_title' type='text/html'>
-HERE YOU CAN GIVE YOUR PROGRAM A TITLE
+LIGHTS CAMERA ACTION
 </script>
 
 
 <!!-------- HERE IS WHERE YOU CAN PROVIDE A LONGER TEXT DESCRIPTION -------->
 
-<script id='my_instructions' type='text/html'><font color=#b0b0b0>
-Here you can write a description<br>
-in HTML format of what your program<br>
-is doing, and why you wrote it.
-<p>
-<i>For example:</i>
-<p>
-This is a really simple fragment shader<br>
-program I wrote so the students in my<br>
-computer graphics class can see how<br>
-<code>uTime</code> and <code>vPos</code> can be the inputs for<br>
-a fragment shader, and <code>gl_FragColor</code><br>
-is the output.
+<script id='my_instructions' type='text/html'>
+Three spotlights walk into a bar and the bartender says, "Why so red and blue in the face, fellas?"
 </script>
 
 
@@ -276,27 +217,162 @@ textArea.style.color = 'white';
 
 textArea.onkeyup = function() { canvas1.setShaders(vs, this.value); }
 
+let ele_wise = (func, data) => {
+	let ret = [];
+	for (let i = 0; i < data.length; ++i){
+		ret[i] = func(data[i]);
+	}
+	return ret;
+};
+
+let vec_dot = (lhs, rhs) => {
+	if (lhs.length != rhs.length){
+		//MAGIC return null value
+		return 0;
+	}
+
+	let ret = 0;
+	for (let i = 0; i < lhs.length; ++i){
+		ret += lhs[i] * rhs[i];
+	}
+	return ret;
+};
+
+let vec_2_norm = (vec) => {
+	return Math.sqrt(vec_dot(vec, vec));
+};
+
+let vec_normalize = (vec) => {
+	let two_norm = vec_2_norm(vec);
+	vec = ele_wise((ele) => {return ele / two_norm;}, vec);
+
+	return vec;
+};
+
+let rgb_color = (color) => {
+	return ele_wise((ele) => {return ele / 255;}, color);
+};
+
+let triangle_wave = (freq, delta, time) => {
+	return delta * 1/2 * (1 + Math.asin(Math.cos(freq * 2*Math.PI * time)) / (Math.PI / 2));
+};
+
 // SET THE CURRENT TIME IN SECONDS BEFORE RENDERING EACH FRAME.
 
 let startTime = Date.now();
 
-function animate(gl) {
-   let time = (Date.now() - startTime) / 1000;
+function animate(gl){
+	//IIFE to allow async/await
+	(async () => {
+		let mtime = Date.now() - startTime;
+		let time = mtime / 1000;
+		setUniform('1f', 'u_mtime', mtime);
+		setUniform('1f', 'u_time', time);
 
-   setUniform('1f', 'uTime', time);
+		let sim_time = time;
 
-   // EACH LIGHT DIRECTION VECTOR MUST BE UNIT LENGTH.
+		let eye_offset = [0.0, 0.0, 10.0];
 
-   let r3 = 1 / Math.sqrt(3);
+		let r_light = {
+			"pos": [-20 + triangle_wave(1/5, 40, sim_time), 20, 20],
+			"color": [255, 0, 0],
+			"theta": Math.acos(0.9999)
+		};
 
-   setUniform('3fv', 'uLDir', [ r3,r3,r3,  -r3,-r3,r3] );
+		let g_light = {
+			"pos": [30 + triangle_wave(1/10, -80, sim_time), -10 + triangle_wave(1/15, 15, sim_time), 20],
+			"color": [0, 255, 0],
+			"theta": Math.acos(0.9999)
+		};
 
-   setUniform('3fv', 'uLCol', [ 1,1,1,      .5,.5,.5 ] );
+		let b_light = {
+			"pos": [-10, 30, 20],
+			"color": [0, 0, 255],
+			"theta": Math.acos(0.9999)
+		};
 
-   let x = .7 * Math.cos(time);
-   let z = .7 * Math.sin(time);
-   setUniform('4fv', 'uSph', [ 0,0,0,.4,
-                               x,0,z,.2 ] );
+		let w_light = {
+			"pos": [0, 0, 20],
+			"color": [90, 90, 90],
+			"theta": Math.acos((Math.floor(time / 5) % 2) ? 0 : 1)
+		};
+
+		ele_wise(
+			(light) => {
+				light["dir"] = vec_normalize(ele_wise((ele) => {return -ele;}, light["pos"]));
+			},
+			[r_light, g_light, b_light, w_light]
+		);
+
+		//should look like a plane
+		let surface_sph = {
+			"pos": [0, 0, -6000],
+			"radius": 6000,
+			"color": [30, 30, 30]
+		}
+
+		//simulate three balls bouncing on a surface
+		let ball_radius = 0.6 + triangle_wave(1/30, -0.3, sim_time);
+		let ball_theta = (time / 2) % (2 * Math.PI);
+		let ball_height = 0.3 * Math.abs(Math.sin(0.6 * Math.PI * time));
+
+		let ball_1_sph = {
+			"pos": [ball_radius * Math.cos(ball_theta), ball_radius * Math.sin(ball_theta), 0.1 + ball_height],
+			"radius": 0.1,
+			"color": [200, 200, 200]
+		}
+
+		let ball_2_sph = {
+			"pos": [ball_radius * Math.cos(ball_theta + 1/3 * 2*Math.PI), ball_radius * Math.sin(ball_theta + 1/3 * 2*Math.PI), 0.1 + ball_height],
+			"radius": 0.1,
+			"color": [0, 180, 40]
+		}
+
+		let ball_3_sph = {
+			"pos": [ball_radius * Math.cos(ball_theta + 2/3 * 2*Math.PI), ball_radius * Math.sin(ball_theta + 2/3 * 2*Math.PI), 0.1 + ball_height],
+			"radius": 0.1,
+			"color": [0, 0, 0]
+		}
+
+		setUniform("1f", "u_sim_time", sim_time);
+		setUniform("3f", "u_eye_offset", eye_offset);
+		setUniform("3fv", "u_light_pos", [
+			...r_light["pos"],
+			...g_light["pos"],
+			...b_light["pos"],
+			...w_light["pos"]
+		]);
+		setUniform("3fv", "u_light_dir", [
+			...r_light["dir"],
+			...g_light["dir"],
+			...b_light["dir"],
+			...w_light["dir"]
+		]);
+		setUniform("3fv", "u_light_color", [
+			...rgb_color(r_light["color"]),
+			...rgb_color(g_light["color"]),
+			...rgb_color(b_light["color"]),
+			...rgb_color(w_light["color"])
+		]);
+		setUniform("1fv", "u_light_theta", [
+			r_light["theta"],
+			g_light["theta"],
+			b_light["theta"],
+			w_light["theta"]
+		]);
+		setUniform("4fv", "u_sphere_info", [
+			...surface_sph["pos"], surface_sph["radius"],
+			...ball_1_sph["pos"], ball_1_sph["radius"],
+			...ball_2_sph["pos"], ball_2_sph["radius"],
+			...ball_3_sph["pos"], ball_3_sph["radius"]
+		]);
+		setUniform("3fv", "u_sphere_color", [
+			...rgb_color(surface_sph["color"]),
+			...rgb_color(ball_1_sph["color"]),
+			...rgb_color(ball_2_sph["color"]),
+			...rgb_color(ball_3_sph["color"])
+		]);
+	})();
 }
 
 // START EVERYTHING.
