@@ -1,8 +1,9 @@
+
 <script src=lib4.js></script>
 
 <body bgcolor=black text=white link=white alink=white vlink=white>
 <center>
-<canvas id='canvas1' width=600 height=600></canvas>
+<canvas id='canvas1' width=400 height=400></canvas>
 </center>
 </body>
 
@@ -22,239 +23,243 @@
 <!!-------- FRAGMENT SHADER: THIS IS WHERE YOU WILL DO YOUR WORK -------->
 
 <script id='my_fragment_shader' type='x-shader/x-fragment'>
-
- uniform float uTime;   // TIME, IN SECONDS
-
- const int nl = 2;
- const int ns = 2;
-
- uniform vec3 uLDir[nl]; // LIGHT DIRECTION
- uniform vec3 uLCol[nl]; // LIGHT COLOR
-
- uniform vec4 uSph[ns];   // THE SPHERE
- uniform mat4 uPhong[ns]; // PHONG PARAMETERS
-
- varying vec3 vPos;     // -1 < vPos.x < +1
-                        // -1 < vPos.y < +1
-                        //      vPos.z == 0
-
- // FOCAL LENGTH OF CAMERA ROUGHLY MIMICS A STANDARD 50mm LENS
-
- float f = 3.0;
-
- // FUNCTION TO INTERSECT A SPHERE WITH A RAY
-
- float raySphere(vec4 S, vec3 V, vec3 W) {
-    V -= S.xyz;
-    float vw = dot(V, W);
-    float d = vw * vw - dot(V, V) + S.w * S.w;
-    return d < 0. ? -1. : -vw - sqrt(d);
- }
-
- // CREATE PROCEDURAL SPHERE TEXTURES
-
- vec3 textureSphere(int ii, vec3 N) {
-
-    // START WITH WHITE.
-
-    vec3 color = vec3(1.,1.,1.);
-
-    // MORE COMPLEX TEXTURE FOR THE PLANET.
-
-    if (ii == 0) {
-
-       // ANIMATED ROTATION OF THE SPHERE TEXTURE
-
-       float theta = 0.2 * uTime;
-       float x =  N.x * cos(theta) + N.z * sin(theta);
-       float z = -N.x * sin(theta) + N.z * cos(theta);
-
-       // FRACTAL NOISE-BASED TEXTURE TO DELINEATE LAND AND SEA
-
-       float s = .5;
-       s += .40 * noise( 2. * vec3(x,N.y,z));
-       s += .20 * noise( 4. * vec3(x,N.y,z));
-       s += .10 * noise( 8. * vec3(x,N.y,z));
-       s += .05 * noise(16. * vec3(x,N.y,z));
-       s = step(s, 0.4);
-
-       // NOISE-BASED TEXTURE FOR THE LAND AREAS OF THE PLANET
-
-       float m = .5 + .5 * noise(30. * vec3(x,N.y,z));
-       color *= mix(vec3(.1,.9,.9), vec3(.9,.6,.3) * m, s);
-    }
-
-    // SIMPLE COHERENT NOISE TEXTURE FOR THE MOON.
-
-    if (ii == 1) {
-       color *= .8 + .5 * noise(5. * N);
-    }
-
-    return color;
- }
-
- // SHADE A SPHERE USING PHONG REFLECTION MODEL.
-
- vec3 shadeSphere(int ii, vec3 P, vec3 N, mat4 M, vec3 W) {
-
-    // CALCULATE TEXTURE FOR THIS SPHERE
-
-    vec3 texture = textureSphere(ii, N);
-
-    // FETCH PHONG MATERIAL PROPERTIES.
-
-    vec3 ambient = M[0].rgb;
-    vec3 diffuse = M[1].rgb;
-    vec4 specular = M[2];
-
-    // START WITH JUST AMBIENT REFLECTION.
-
-    vec3 color = ambient * texture;
-
-    // LOOP THROUGH ALL LIGHT SOURCES.
-
-    for (int i = 0 ; i < nl ; i++) {
-
-       // SEE IF THE SURFACE POINT IS IN SHADOW FROM THIS LIGHT
-
-       vec3 Vs = P + 0.001 * uLDir[i];  // RAY FROM OUTSIDE SURFACE
-       vec3 Ws = uLDir[i];              // TOWARD LIGHT SOURCE.
-
-       // BY SHOOTING A SHADOW RAY FOR THIS LIGHT TO EVERY SPHERE.
-
-       float t = -1.;
-       for (int j = 0 ; j < ns ; j++)
-          t = max(t, raySphere(uSph[j], Vs, Ws));
-
-       // IF THE SURFACE POINT IS NOT IN SHADOW FROM THIS LIGHT
-
-       if (t < 0.) {
-
-          // ADD DIFFUSE COMPONENT
-
-          color += diffuse * max(0., dot(N, uLDir[i])) * uLCol[i] * texture;
-
-          // ADD SPECULAR COMPONENT
-
-          vec3 R = 2. * N * dot(N, uLDir[i]) - uLDir[i];
-          color += specular.rgb * pow(max(0., dot(R, -W)), specular.a) * uLCol[i];
-
-       }
-    }
-    return color;
- }
-
- void main() {
-
-    // START WITH A DARK BLUE SKY.
-
-    vec3 color = vec3(0., 0., 0.05);
-
-    // TRACE A RAY AT THIS PIXEL DIRECTION.
-
-    vec3 V = vec3(0., 0., f);
-    vec3 W = normalize(vec3(vPos.x, vPos.y, -f));
-
-    // FIRST DETERMINE WHICH SPHERE WE HIT, IF ANY.
-
-    float t0 = 10000.; // HUGE STARTING VALUE FOR t.
-    vec3 P, N;
-    mat4 M;
-    int ii = -1;
-
-    // LOOP THROUGH ALL SPHERES.
-
-    for (int i = 0 ; i < ns ; i++) {
-       vec4 S = uSph[i];
-       float t = raySphere(S, V, W);
-
-       // IF THE RAY HITS THE SPHERE NEARER THAN ALL OTHERS
-
-       if (t > 0. && t < t0) {
-          t0 = t;
-          ii = i;
-
-          // COMPUTE SURFACE POSITION AND NORMAL DIRECTION.
-   
-          P = V + t * W;
-          N = normalize(P - S.xyz);
-          M = uPhong[i];
-       }
-    }
-
-    // IF THE RAY HAS HIT AT LEAST ONE SPHERE
-
-    if (ii >= 0) {
-
-       // SHADE AND TEXTURE THE SPHERE.
-
-       color = shadeSphere(ii, P, N, M, W);
-
-       // FORM A MIRROR REFLECTION RAY.
-
-       vec3 Wr = 2. * N * dot(N, -W) + W;
-       vec3 Vr = P + .001 * Wr;
-
-       // CHECK FOR MIRROR REFLECTION OF OTHER SPHERES.
-
-       int jj = -1;
-       vec3 Pr, Nr;
-       mat4 Mr;
-
-       float t0 = 1000.;
-       for (int j = 0 ; j < ns ; j++) {
-          float t = raySphere(uSph[j], Vr, Wr);
-	  if (t > 0. && t < t0) {
-	     t0 = t;
-	     jj = j;
-	     Pr = Vr + t * Wr;
-	     Nr = normalize(Pr - uSph[j].xyz);
-	     Mr = uPhong[j];
-	  }
-       }
-
-       // IF THERE IS A MIRROR REFLECTION, MIX IT INTO COLOR.
-
-       if (jj >= 0) {
-          vec3 mirrorColor = shadeSphere(jj, Pr, Nr, Mr, Wr);
-	  color = mix(color, mirrorColor, .5);
-       }
-    }
-
-    // ADD COHERENT NOISE-BASED ANIMATED LAYERED FOG
-
-    vec3 wind = vec3(-0.4 * uTime, 0., 0.);
-    float fog = .7 + .6 * noise(1.5 * vPos + wind);
-    float layer = 0.5 - 0.5 * vPos.y;
-    fog *= 2. * layer * layer;
-    color = mix(color, vec3(.1,.095,.09), fog);
-
-    // SET THE FINAL COLOR FOR THE PIXEL
-
-    gl_FragColor = vec4(sqrt(color), 1.0);
- }</script>
+/*
+
+   /|| ||
+  //||_||     /|_|
+ //_||_||    / | |    AH
+//  || ||
+
+*/
+
+	uniform float u_time; //time in seconds
+	uniform float u_mtime; //time in milliseconds
+
+	varying vec3 vPos; //pos coord we receive. ctrl-f `vec3 pos` for more info
+
+	const int num_lights = 1;
+	const int num_spheres = 5;
+	const int max_raytrace_depth = 6;
+
+	uniform float u_sim_time;
+	uniform vec3 u_eye_offset;
+
+	uniform vec3 u_light_pos[num_lights];
+	uniform vec3 u_light_dir[num_lights];
+	uniform vec3 u_light_color[num_lights];
+	uniform float u_light_theta[num_lights];
+	uniform vec4 u_sphere_info[num_spheres];
+	uniform vec3 u_sphere_color[num_spheres];
+	uniform mat4 u_sphere_phong[num_spheres];
+	uniform float u_sphere_reflectivity[num_spheres];
+
+	//stores one frame of a "call stack trace" of multi-level reflection
+	struct Raytrace_frame{
+		vec3 init_pt;
+		vec3 inbound_dir;
+		vec3 intersect_pt;
+
+		vec3 color;
+		float reflectivity;
+
+		vec3 reflect_dir;
+		bool end_of_trace;
+	};
+
+	//intersecting ray is V + t * W, where t is ret val
+	float ray_sphere(vec4 sphere, vec3 V, vec3 W){
+		V -= sphere.xyz;
+		float v_dot_w = dot(V, W);
+		//radius is sphere.w
+		float discrim = v_dot_w * v_dot_w - dot(V, V) + sphere.w * sphere.w;
+		//MAGIC return -1 as a failure value
+		return discrim < 0.0 ? -1.0 : -v_dot_w - sqrt(discrim);
+	}
+
+	//returns id of the closest sphere hit by the ray tracing, -1 if no hits
+	int min_t_sphere(vec3 V, vec3 W){
+		int ret = -1;
+		//MAGIC random sufficient large value approx. infinity
+		float min_t = 100100100.0;
+
+		for (int i = 0; i < num_spheres; ++i){
+			float temp = ray_sphere(u_sphere_info[i], V, W);
+
+			if (temp > 0.0 && temp < min_t){
+				min_t = temp;
+				ret = i;
+			}
+		}
+
+		return ret;
+	}
+
+	//returns id of the farthest sphere hit by the ray tracing, -1 if no hits
+	int max_t_sphere(vec3 V, vec3 W){
+		int ret = -1;
+		//MAGIC random sufficient small value approx. -infinity
+		float max_t = -100100100.0;
+
+		for (int i = 0; i < num_spheres; ++i){
+			float temp = ray_sphere(u_sphere_info[i], V, W);
+
+			if (temp > 0.0 && temp > max_t){
+				max_t = temp;
+				ret = i;
+			}
+		}
+
+		return ret;
+	}
+
+	vec3 apply_phong(vec3 color, mat4 phong_mat, vec3 intersect_pt, vec3 surface_normal, vec3 raytrace_vec){
+		//Phong lighting model
+		vec3 ambient_factor = phong_mat[0].rgb;
+		vec3 diffuse_factor = phong_mat[1].rgb;
+		vec3 spectral_factor = phong_mat[2].rgb;
+		float spectral_power = phong_mat[2].a;
+
+		vec3 ret = ambient_factor * color;
+
+		for (int i = 0; i < num_lights; ++i){
+			vec3 pt_to_light = normalize(u_light_pos[i] - intersect_pt);
+
+			//point is within light cone
+			if (dot(u_light_dir[i], -pt_to_light) > cos(u_light_theta[i])){
+				//MAGIC null value to indicate not in shadow
+				if (max_t_sphere(intersect_pt, pt_to_light) == -1){
+					//diffuse
+					ret += diffuse_factor * u_light_color[i] * color * max(0.0, dot(surface_normal, pt_to_light));
+
+					//spectral
+					vec3 reflection = 2.0 * dot(surface_normal, pt_to_light) * surface_normal - pt_to_light;
+					float spectral_dot = dot(reflection, -raytrace_vec);
+
+					if (spectral_dot > 0.0){
+						ret += spectral_factor * u_light_color[i] * pow(spectral_dot, spectral_power);
+					}
+				}
+			}
+		}
+
+		return ret;
+	}
+
+	vec3 rgb_color(int r, int g, int b){
+		return vec3(
+			float(r) / 255.0,
+			float(g) / 255.0,
+			float(b) / 255.0
+		);
+	}
+
+	Raytrace_frame get_first_frame(vec3 view_pt, vec3 view_dir){
+		Raytrace_frame ret;
+
+		ret.init_pt = view_pt;
+		ret.inbound_dir = view_dir;
+
+		int sphere_hit = min_t_sphere(view_pt, view_dir);
+		//MAGIC null value from min_t_sphere(...)
+		if (sphere_hit != -1){
+			//workaround for non-constant indexing
+			for (int i = 0; i < num_spheres; ++i){
+				if (i != sphere_hit){
+					continue;
+				}
+
+				vec4 sphere = u_sphere_info[i];
+				vec3 intersect_pt = view_pt + ray_sphere(sphere, view_pt, view_dir) * view_dir;
+				vec3 normal = normalize(intersect_pt - sphere.xyz);
+
+				ret.intersect_pt = intersect_pt;
+
+				vec3 pt_color = apply_phong(u_sphere_color[i], u_sphere_phong[i], intersect_pt, normal, view_dir);
+				vec3 reflect_dir = 2.0 * dot(normal, -view_dir) * normal + view_dir;
+
+				ret.color = pt_color;
+				ret.reflectivity = u_sphere_reflectivity[i];
+
+				ret.reflect_dir = reflect_dir;
+				ret.end_of_trace = false;
+			}
+		}
+		else{
+			//MAGIC black is null background color
+			ret.color = rgb_color(0, 0, 0);
+			ret.end_of_trace = true;
+		}
+
+		return ret;
+	}
+
+	Raytrace_frame get_next_frame(Raytrace_frame prev){
+		if (!prev.end_of_trace){
+			return get_first_frame(prev.intersect_pt, prev.reflect_dir);
+		}
+
+		Raytrace_frame dummy;
+		return dummy;
+	}
+
+	//merge the colors from all the reflections
+	vec3 combine_frames(Raytrace_frame[max_raytrace_depth] frames){
+		int depth = 0;
+		for (int i = 0; i < max_raytrace_depth; ++i){
+			if (!frames[i].end_of_trace){
+				++depth;
+			}
+			else{
+				break;
+			}
+		}
+
+		//merge i's color with i-1's color, where i in [1, depth]
+		for (int i = max_raytrace_depth - 1; i > 0; --i){
+			if (i <= depth){
+				frames[i-1].color = mix(frames[i-1].color, frames[i].color, frames[i-1].reflectivity);
+			}
+		}
+		return frames[0].color;
+	}
+
+	void main(){
+		vec3 pos = vPos; //bounds: x, y in (-1, 1) and z = 0
+
+		vec3 ret = rgb_color(0, 0, 0);
+
+		float focal_len = 3.0;
+		vec3 eye = vec3(0.0, 0.0, focal_len);
+		vec3 pixel_ray = normalize(vec3(pos.x, pos.y, -focal_len));
+
+		vec3 view_pt = eye;
+		vec3 view_dir = pixel_ray;
+
+		Raytrace_frame frames[max_raytrace_depth];
+		frames[0] = get_first_frame(view_pt, view_dir);
+
+		for (int i = 1; i < max_raytrace_depth; ++i){
+			frames[i] = get_next_frame(frames[i-1]);
+		}
+
+		ret = combine_frames(frames);
+
+		gl_FragColor = vec4(sqrt(ret), 1.0);
+	}
+</script>
 
 
 <!!-------- CREATE A PROPERLY DESCRIPTIVE TITLE BELOW -------->
 
 <script id='my_title' type='text/html'>
-RAY TRACING WITH TEXTURE, SHADOWS AND REFLECTION
+What are initials? baby don't hurt me ... don't hurt me no more
 </script>
 
 
 <!!-------- HERE IS WHERE YOU CAN PROVIDE A LONGER TEXT DESCRIPTION -------->
 
-<script id='my_instructions' type='text/html'><font color=#b0b0b0>
-This is a simple ray tracer in a fragment<br>
-shader that I wrote so the students in my<br>
-computer graphics class can see how<br>
-these various aspects of ray tracing<br>
-can be implemented.
-<p>
-It includes two procedurally textured<br>
-spheres with phong reflection model,<br>
-shadows and mirror reflection and<br>
-animated procedural atmosphere.
+<script id='my_instructions' type='text/html'>
+An attempt to draw a ligature AH, with colored balls reflecting off each other at variable depth (see `max_raytrace_depth`). Look closely to see reflections getting reflected again + " ".join(3 * ["and again"])
 </script>
 
 
@@ -302,39 +307,184 @@ textArea.style.color = 'white';
 
 textArea.onkeyup = function() { canvas1.setShaders(vs, this.value); }
 
+let ele_wise = (func, data) => {
+	let ret = [];
+	for (let i = 0; i < data.length; ++i){
+		ret[i] = func(data[i]);
+	}
+	return ret;
+};
+
+let vec_dot = (lhs, rhs) => {
+	if (lhs.length != rhs.length){
+		//MAGIC return null value
+		return 0;
+	}
+
+	let ret = 0;
+	for (let i = 0; i < lhs.length; ++i){
+		ret += lhs[i] * rhs[i];
+	}
+	return ret;
+};
+
+let vec_2_norm = (vec) => {
+	return Math.sqrt(vec_dot(vec, vec));
+};
+
+let vec_normalize = (vec) => {
+	let two_norm = vec_2_norm(vec);
+	vec = ele_wise((ele) => {return ele / two_norm;}, vec);
+
+	return vec;
+};
+
+let rgb_color = (color) => {
+	return ele_wise((ele) => {return ele / 255;}, color);
+};
+
+let triangle_wave = (freq, delta, time) => {
+	return delta * 1/2 * (1 + Math.asin(Math.cos(freq * 2*Math.PI * time)) / (Math.PI / 2));
+};
+
+//returns a flattened matrix that stores ambient.rgb, diffuse.rgb, spectral.rgb, and spectral_power properly
+let phong_generate = (ambient, diffuse, spectral, spectral_pow) => {
+	//expands 1 ele to 3 ele, if necessary
+	let dupe = (it) => {
+		if (it.length == 1){
+			it = [it[0], it[0], it[0]];
+		}
+		return it;
+	};
+	ambient = dupe(ambient);
+	diffuse = dupe(diffuse);
+	spectral = dupe(spectral);
+
+	return [
+		...ambient, 0.0,
+		...diffuse, 0.0,
+		...spectral, spectral_pow,
+		0.0, 0.0, 0.0, 0.0
+	];
+};
+
 // SET THE CURRENT TIME IN SECONDS BEFORE RENDERING EACH FRAME.
 
 let startTime = Date.now();
 
-let dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
-let norm = a => Math.sqrt(dot(a,a));
-let normalize = a => { let s = norm(a); return [ a[0]/s,a[1]/s,a[2]/s ]; }
+function animate(gl){
+	//IIFE to allow async/await
+	(async () => {
+		let mtime = Date.now() - startTime;
+		let time = mtime / 1000;
+		setUniform('1f', 'u_mtime', mtime);
+		setUniform('1f', 'u_time', time);
 
-function animate(gl) {
-   let time = (Date.now() - startTime) / 1000;
+		let sim_time = time * Math.max(0.15, Math.pow(0.99, time));
 
-   setUniform('1f', 'uTime', time);
+		let eye_offset = [0.0, 0.0, 10.0];
 
-   // EACH LIGHT DIRECTION VECTOR MUST BE UNIT LENGTH.
+		let w_light = {
+			"pos": [4, -4, 20],
+			"color": [255, 255, 255],
+			"theta": Math.acos(0)
+		};
 
-   let r3 = 1 / Math.sqrt(3);
+		[w_light] = ele_wise(
+			(light) => {
+				light["dir"] = vec_normalize(ele_wise((ele) => {return -ele;}, light["pos"]));
+				return light;
+			},
+			[w_light]
+		);
 
-   let L0 = normalize([1,1,Math.sin(time)]);
-   let L1 = normalize([-1,-1,-1]);
+		//should look like a plane
+		let surface_sph = {
+			"pos": [0, 0, -6018],
+			"radius": 6000,
+			"color": [30, 220, 30],
+			"phong": phong_generate([0.12], [0.65], [0.15], 15.0),
+			"reflect": 0.4
+		}
 
-   setUniform('3fv', 'uLDir', L0.concat(L1));
+		//just a value we use to play with the z value of the balls
+		let z_delta = 0.25;
 
-   setUniform('3fv', 'uLCol', [ 1,1,1,      .5,.5,.5 ] );
+		let a_slant_sph = {
+			"pos": [-0.8 + triangle_wave(1/5, 0.8, sim_time), -0.8 + triangle_wave(1/5, 1.6, sim_time), z_delta],
+			"radius": 0.2,
+			"color": [200, 0, 30],
+			"phong": phong_generate([0.12], [0.65], [0.15], 15.0),
+			"reflect": 0.7
+		}
 
-   setUniform('Matrix4fv', 'uPhong', false, [
-      .1,.1,.1,0,  .2,.2,.2,0,  .8,.8,.8,20,  0,0,0,0,
-      .1,.05,.025,0,  .2,.1,.05,0,  .8,.4,.2,2,  0,0,0,0,
-   ]);
+		let ah_bar_sph = {
+			"pos": [0.0, 0.8 + triangle_wave(1/4, -1.6, sim_time), -z_delta + triangle_wave(1/7, 2 * z_delta, sim_time)],
+			"radius": 0.2,
+			"color": [115, 0, 115],
+			"phong": phong_generate([0.12], [0.65], [0.15], 15.0),
+			"reflect": 0.5
+		}
 
-   let x = .7 * Math.cos(time);
-   let z = .7 * Math.sin(time);
-   setUniform('4fv', 'uSph', [ 0,0,0,.4,
-                               x,0,z,.2 ] );
+		let h_bar_sph = {
+			"pos": [0.8, -0.8 + triangle_wave(1/5, 1.6, sim_time), -z_delta],
+			"radius": 0.2,
+			"color": [30, 0, 200],
+			"phong": phong_generate([0.12], [0.65], [0.15], 15.0),
+			"reflect": 0.4
+		}
+
+		let crossbar_sph = {
+			"pos": [-0.8 + triangle_wave(1/7, 1.6, sim_time), 0.0, 0.0],
+			"radius": 0.2,
+			"color": [180, 180, 180],
+			"phong": phong_generate([0.12], [0.65], [0.15], 15.0),
+			"reflect": 0.8
+		}
+
+		setUniform("1f", "u_sim_time", sim_time);
+		setUniform("3f", "u_eye_offset", eye_offset);
+		setUniform("3fv", "u_light_pos", [
+			...w_light["pos"]
+		]);
+		setUniform("3fv", "u_light_dir", [
+			...w_light["dir"]
+		]);
+		setUniform("3fv", "u_light_color", [
+			...rgb_color(w_light["color"])
+		]);
+		setUniform("1fv", "u_light_theta", [
+			w_light["theta"]
+		]);
+		setUniform("4fv", "u_sphere_info", [
+			...surface_sph["pos"], surface_sph["radius"],
+			...a_slant_sph["pos"], a_slant_sph["radius"],
+			...ah_bar_sph["pos"], ah_bar_sph["radius"],
+			...h_bar_sph["pos"], h_bar_sph["radius"],
+			...crossbar_sph["pos"], crossbar_sph["radius"]
+		]);
+		setUniform("3fv", "u_sphere_color", [
+			...rgb_color(surface_sph["color"]),
+			...rgb_color(a_slant_sph["color"]),
+			...rgb_color(ah_bar_sph["color"]),
+			...rgb_color(h_bar_sph["color"]),
+			...rgb_color(crossbar_sph["color"])
+		]);
+		setUniform("Matrix4fv", "u_sphere_phong", false, [
+			...surface_sph["phong"],
+			...a_slant_sph["phong"],
+			...ah_bar_sph["phong"],
+			...h_bar_sph["phong"],
+			...crossbar_sph["phong"]
+		]);
+		setUniform("1fv", "u_sphere_reflectivity", [
+			surface_sph["reflect"],
+			a_slant_sph["reflect"],
+			ah_bar_sph["reflect"],
+			h_bar_sph["reflect"],
+			crossbar_sph["reflect"]
+		]);
+	})();
 }
 
 // START EVERYTHING.
