@@ -249,17 +249,14 @@
 <!!-------- CREATE A PROPERLY DESCRIPTIVE TITLE BELOW -------->
 
 <script id='my_title' type='text/html'>
-USING MATRIX MATH TO MAKE A RUNNING PERSON
+A better tesseract flying over a torus
 </script>
 
 
 <!!-------- HERE IS WHERE YOU CAN PROVIDE A LONGER TEXT DESCRIPTION -------->
 
 <script id='my_instructions' type='text/html'><font color=#b0b0b0>
-We implemented a sphere mesh.<p>
-We then made a person out of spheres,<br>
-using a tree of matrix transforms to<br>
-make the person run, leap and turn.
+This is a new and improved version of my <a href="../hw5/index.html">homework 5</a>. It's performing levitation over a nice donut-shaped planet. (most of the code is not refactored like in previous homeworks due to midterm prep)
 </script>
 
 
@@ -327,7 +324,9 @@ let tmp;
 
 // SQUARE MESH
 
-let squareMesh = new Float32Array( [ -1,1,0, 1,1,0, -1,-1,0, 1,-1,0 ] );
+let square_mesh = new Float32Array(
+	[ -1,1,0, 1,1,0, -1,-1,0, 1,-1,0 ]
+);
 
 
 // TUBE MESH
@@ -341,7 +340,7 @@ for (let i = 0 ; i <= 16 ; i++) {
    tmp.push(c,s,-1, c,s,1);
 }
 
-let tubeMesh = new Float32Array(tmp);
+let tube_mesh = new Float32Array(tmp);
 
 
 // SPHERE MESH
@@ -364,8 +363,33 @@ for (let j = 0 ; j < 16 ; j++) {
    }
 }
 
-let sphereMesh = new Float32Array(tmp);
+let sphere_mesh = new Float32Array(tmp);
 
+//torus mesh
+let torus_mesh = (radius) => {
+	let uv_to_xyz = (u, v) => {
+		let theta = 2*Math.PI * u;
+		let phi = 2*Math.PI * v;
+
+		let layer_factor = 1 + radius * Math.cos(phi);
+
+		return [
+			layer_factor * Math.cos(theta),
+			layer_factor * Math.sin(theta),
+			radius * Math.sin(phi)
+		];
+	};
+
+	let temp = [];
+	for (let i = 0; i < 32; ++i){
+		for (let j = 0; j < 32; ++j){
+			temp = temp.concat(uv_to_xyz(j / 32, i / 32));
+			temp = temp.concat(uv_to_xyz(j / 32, (i + 1) / 32));
+		}
+	}
+
+	return new Float32Array(temp);
+};
 
 ////////////////// MAIN ANIMATE-FRAME CALLBACK
 
@@ -420,115 +444,231 @@ function animate(gl) {
 
    let T = 4 * time;
 
-   // POSITION AND SCALE THE ENTIRE SCENE
+	//START MODIFICATIONS
+	let draw_mesh = (mesh) => {
+		drawMesh(mesh, m[mTop]);
+	};
 
-   mIdentity();
-   mScale(.45,.45,.45);
-   mTranslate(0,.85,0);
+	class Engine{
+		constructor(){
+			this.stack_names = [""];
+			mIdentity();
+			mSave();
+		}
 
-   // PLACE THE GROUND PLANE
+		save(key){
+			if (key === undefined){
+				this.stack_names.push(null);
+				mSave();
+			}
+			else{
+				this.stack_names.push(key);
+				mSave();
+			}
 
-   mSave();
-     mTranslate(0,-2.65,0);
-     mRotateX(Math.PI/2);
-     mScale(2,2,2);
-     drawMesh(squareMesh, m[mTop]);
-   mRestore();
+			return this;
+		}
 
-   // ROTATE THE RUNNING PERSON OVER TIME
+		restore(key){
+			if (key === undefined){
+				this.stack_names.pop();
+				mRestore();
+			}
+			else{
+				while (this.stack_names[this.stack_names.length - 1] !== key){
+					if (this.stack_names.length === 1){
+						throw "Bad call\n";
+					}
 
-   mRotateY(T / 3);
+					this.stack_names.pop();
+					mRestore();
+				}
+				this.stack_names.pop();
+				mRestore();
+			}
 
-   mSave(); // START OF BODY
+			return this;
+		}
 
-   // JUMP UP WITH EVERY STEP
+		translate(x, y, z){
+			mTranslate(x, y, z);
+			return this;
+		}
 
-   mTranslate(0, .6 * Math.abs(Math.sin(T)), 0);
+		scale(x, y, z){
+			//auto fill if either y or z is undefined
+			if (y === undefined || z === undefined){
+				y = x;
+				z = x;
+			}
 
-   // TORSO
+			mScale(x, y, z);
+			return this;
+		}
 
-   mSave();
-     mTranslate(0, -.4, 0);
-     mScale(.3,.5,.3);
-     drawMesh(sphereMesh, m[mTop]); // torso
-   mRestore();
+		rot_x(theta){
+			mRotateX(theta);
+			return this;
+		}
 
-   // HEAD
+		rot_y(theta){
+			mRotateY(theta);
+			return this;
+		}
 
-   mSave();
-     mTranslate(0, .25, 0);
-     mRotateZ(Math.sin(T));
-     mTranslate(0, .25, 0);
-     mScale(.2,.25,.2);
-     drawMesh(sphereMesh, m[mTop]); // head
-   mRestore();
+		rot_z(theta){
+			mRotateZ(theta);
+			return this;
+		}
 
-   // ARMS -- LOOP OVER LEFT AND RIGHT ARM,
-   // DRAWING UPPER AND LOWER ARM, BENDING AT SHOULDER AND ELBOW.
+		draw(mesh){
+			draw_mesh(mesh);
+			return this;
+		}
 
-   let al = 0.4, at = 0.08;
-   for (let side = -1 ; side <= 1 ; side += 2) {
-      mSave();
-        mTranslate(.5 * side, 0, 0);
-        let t = T + Math.PI * side / 2;
-        mRotateX(Math.PI/2);
-        mRotateX(Math.cos(t));  // shoulder rotation
-        mTranslate(0,0,al);
-        mSave();
-           mScale(at,at,al);
-           drawMesh(sphereMesh, m[mTop]); // upper arm
-        mRestore();
-        mTranslate(0,0,al);
-        mRotateX(.5 + .5 * Math.sin(t));  // elbow rotation
-        mTranslate(0,0,al);
-        mSave();
-           mScale(at,at,al);
-           drawMesh(sphereMesh, m[mTop]); // lower arm
-        mRestore();
-      mRestore();
-   }
+		embed(func){
+			return func(this);
+		}
+	}
 
-   // LEGS -- LOOP OVER LEFT AND RIGHT LEG,
-   // DRAWING UPPER LEG, LOWER LEG AND FOOT, BENDING AT HIP, KNEE AND ANKLE.
+	let tesseract_side = (engine) => {
+		let side_len = 8.0;
+		let pipe_radius = 0.6;
 
-   let ll = 0.43, lt = 0.11;
-   for (let side = -1 ; side <= 1 ; side += 2) {
-      mSave();
-        mTranslate(.25 * side, -.9, 0);
-        let t = T + Math.PI * side / 2;
+		return engine
+			.draw(sphere_mesh)
+			.save()
+				.rot_x(-Math.PI / 2)
+				.scale(pipe_radius, side_len / 2, pipe_radius)
+				.translate(0.0, 1.0, 0.0)
+				.rot_x(-Math.PI / 2)
+				.draw(tube_mesh)
+				.restore()
 
-        mRotateX(Math.PI/2);
-        mRotateX(-Math.cos(t));  // shoulder rotation
+			.translate(0.0, 0.0, -side_len)
+			.rot_x(Math.PI / 2)
+		;
+	};
 
-        mTranslate(0,0,ll);
+	let tesseract_square = (engine) => {
+		let side_len = 8.0;
 
-        mSave();
-           mScale(lt,lt,ll);
-           drawMesh(sphereMesh, m[mTop]); // upper leg
-        mRestore();
+		return engine
+			.scale(1/side_len)
 
-        mTranslate(0,0,ll);
-        mRotateX(-1 - Math.sin(t));  // knee rotation
-        mTranslate(0,0,ll);
+			.save()
+				.rot_y(Math.PI / 2)
+				//MAGIC multiply by half of side length
+				.scale(side_len/2 / 2)
+				.draw(square_mesh)
+				.restore()
 
-        mSave();
-           mScale(lt,lt,ll);
-           drawMesh(sphereMesh, m[mTop]); // lower leg
-        mRestore();
+			//shift to one of the corners
+			.translate(0.0, -side_len / 2, side_len / 2)
 
-        mTranslate(0,0,ll);
-        mRotateX(Math.PI/2 + Math.cos(t)/2);  // ankle rotation
-        mTranslate(0,0,ll/2);
+			.embed(tesseract_side)
+			.embed(tesseract_side)
+			.embed(tesseract_side)
+			.embed(tesseract_side)
+		;
+	};
 
-        mSave();
-           mScale(lt,lt/2,ll/2);
-           drawMesh(sphereMesh, m[mTop]); // foot
-        mRestore();
+	let sim_time = time;
 
-      mRestore();
-   }
+	//generates tesseract x position and size for side number side_num
+	let tesseract_info_gen = (side_num) => {
+		let base_theta_time = (1/10 * sim_time * 2*Math.PI) % (2*Math.PI);
+		let theta_time = Math.PI / 2 * side_num;
+		theta_time = (base_theta_time + theta_time) % (2*Math.PI);
 
-   mRestore(); // END OF BODY
+		let x_pos = Math.sin(theta_time) * Math.max(0.2, Math.exp(-0.5 * Math.abs(theta_time - Math.PI)));
+		let size = 1.5 * ( 0.1 + Math.max(0.15, 0.35 * Math.sin(theta_time / 2)) );
+
+		return [x_pos, size];
+	};
+
+	//generates "height position" and size of ring for ring number ring_num
+	let cone_info_gen = (ring_num) => {
+		let normal_height = -0.5 * (ring_num + 1);
+		let shifted_height = (0.85 + 0.15 / 2) * normal_height + 0.15 / 2 * Math.sin(sim_time/1.5 * 2*Math.PI) * normal_height;
+
+		//cone spread
+		let theta = Math.PI / 2 / 4;
+		//imaginary radius of the circle formed by the cone tip and a point along its base's edge
+		let radius = Math.abs(shifted_height) / Math.cos(theta);
+		let size = radius * Math.sin(theta);
+
+		return [shifted_height, size];
+	};
+
+	let engine = new Engine()
+		//fix weird flipped axes
+		.rot_y(Math.PI)
+
+		//tilt and shrink the whole thing so we see it better
+		.rot_y(Math.PI / 7)
+		.rot_x(Math.PI / 6)
+		.scale(0.45)
+
+		//center the scene into the viewbox
+		.translate(0.0, -2.0, 0.0)
+
+		.save()
+			.translate(Math.cos(1/27 * sim_time * 2*Math.PI), 3.21, Math.sin(1/27 * sim_time * 2*Math.PI))
+
+			.save("tesseract")
+				.save("sq_0")
+					.translate(tesseract_info_gen(0)[0], 0.0, 0.0)
+					.scale(tesseract_info_gen(0)[1])
+					.embed(tesseract_square)
+					.restore()
+
+				.save("sq_1")
+					.translate(tesseract_info_gen(1)[0], 0.0, 0.0)
+					.scale(tesseract_info_gen(1)[1])
+					.embed(tesseract_square)
+					.restore()
+
+				.save("sq_2")
+					.translate(tesseract_info_gen(2)[0], 0.0, 0.0)
+					.scale(tesseract_info_gen(2)[1])
+					.embed(tesseract_square)
+					.restore()
+
+				.save("sq_3")
+					.translate(tesseract_info_gen(3)[0], 0.0, 0.0)
+					.scale(tesseract_info_gen(3)[1])
+					.embed(tesseract_square)
+					.restore("tesseract")
+
+			.save("levitation")
+				.save("ring_0")
+					.translate(0.0, cone_info_gen(0)[0], 0.0)
+					.scale(0.6 * cone_info_gen(0)[1])
+					.rot_x(-Math.PI / 2)
+					.draw(torus_mesh(0.1))
+					.restore()
+
+				.save("ring_1")
+					.translate(0.0, cone_info_gen(1)[0], 0.0)
+					.scale(0.6 * cone_info_gen(1)[1])
+					.rot_x(-Math.PI / 2)
+					.draw(torus_mesh(0.1))
+					.restore()
+
+				.save("ring_2")
+					.translate(0.0, cone_info_gen(2)[0], 0.0)
+					.scale(0.6 * cone_info_gen(2)[1])
+					.rot_x(-Math.PI / 2)
+					.draw(torus_mesh(0.1))
+					.restore("levitation")
+
+			.restore()
+		.save("floor")
+			.translate(0.0, 1.0, 0.0)
+			.rot_x(-Math.PI / 2)
+			.draw(torus_mesh(0.35))
+	;
 }
 
 

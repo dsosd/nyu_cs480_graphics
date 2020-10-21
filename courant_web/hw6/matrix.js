@@ -42,7 +42,7 @@ let matrixRotateX = (a, theta) => {
 let matrixRotateY = (a, theta) => {
    let c = Math.cos(theta);
    let s = Math.sin(theta);
-   let rm = [ c,0,s,0, 0,1,0,0, -s,0,c,0, 0,0,0,1 ];
+   let rm = [ c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1 ];
    return matrixMultiply(a, rm);
 }
 
